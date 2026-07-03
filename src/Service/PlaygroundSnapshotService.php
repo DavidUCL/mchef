@@ -81,26 +81,59 @@ final class PlaygroundSnapshotService extends AbstractService {
     /**
      * Build and publish a snapshot for the given recipe. Returns the public sq3 URL.
      *
-     * Mode is determined automatically:
-     *   - Instance mode (StaticVars::$instance is set): live export from running container
-     *   - Recipe-file mode: fresh snapshot via moodle-playground build scripts
-     *
      * When $stageOnly is true the snapshot files are staged in the mchef-urls repo but
      * not committed — the caller is expected to call PlaygroundUrlsService::publish()
      * immediately after, which will commit the snapshot and blueprint in a single push.
      */
     public function buildAndPublish(Recipe $recipe, string $slug, bool $stageOnly = false): string {
+        return $this->build($recipe, fn(string $sq3Path, ?string $localcachePath) => $stageOnly
+            ? $this->playgroundUrlsService->stageSnapshot($slug, $sq3Path, $localcachePath)
+            : $this->playgroundUrlsService->publishSnapshot($slug, $sq3Path, $localcachePath));
+    }
+
+    /**
+     * Build a snapshot for the given recipe and write it to a local directory instead of
+     * publishing — for callers without a configured mchef-urls repo, who host the .sq3
+     * themselves. Returns the path of the written <slug>.sq3 (a <slug>-localcache.zip is
+     * written alongside when the build produces one).
+     */
+    public function buildToDirectory(Recipe $recipe, string $slug, string $destDir): string {
+        return $this->build($recipe, function (string $sq3Path, ?string $localcachePath) use ($slug, $destDir): string {
+            $destSq3 = rtrim($destDir, '/') . '/' . $slug . '.sq3';
+            if (copy($sq3Path, $destSq3) === false) {
+                throw new CliRuntimeException("Failed to write snapshot to: $destSq3");
+            }
+            if ($localcachePath !== null) {
+                $destCache = rtrim($destDir, '/') . '/' . $slug . '-localcache.zip';
+                if (copy($localcachePath, $destCache) === false) {
+                    throw new CliRuntimeException("Failed to write localcache to: $destCache");
+                }
+            }
+            return $destSq3;
+        });
+    }
+
+    /**
+     * Build a snapshot and hand the resulting files to $consume before the temp build
+     * directory is cleaned up. $consume receives (string $sq3Path, ?string $localcachePath)
+     * and its return value is passed through.
+     *
+     * Mode is determined automatically:
+     *   - Instance mode (StaticVars::$instance is set): live export from running container
+     *   - Recipe-file mode: fresh snapshot via moodle-playground build scripts
+     */
+    private function build(Recipe $recipe, callable $consume): string {
         if (StaticVars::$instance !== null) {
-            return $this->liveSnapshot($recipe, $slug, $stageOnly);
+            return $this->liveSnapshot($recipe, $consume);
         }
-        return $this->freshSnapshot($recipe, $slug, $stageOnly);
+        return $this->freshSnapshot($recipe, $consume);
     }
 
     /**
      * Build a clean install snapshot at the recipe's Moodle version using
-     * moodle-playground's scripts, then upload to mchef-urls.
+     * moodle-playground's scripts.
      */
-    private function freshSnapshot(Recipe $recipe, string $slug, bool $stageOnly = false): string {
+    private function freshSnapshot(Recipe $recipe, callable $consume): string {
         $playgroundPath = $this->requirePlaygroundPath();
         $channel        = $this->requireChannel($recipe->moodleTag);
 
@@ -130,9 +163,7 @@ final class PlaygroundSnapshotService extends AbstractService {
                 throw new CliRuntimeException("generate-install-snapshot.sh did not produce install.sq3");
             }
 
-            return $stageOnly
-                ? $this->playgroundUrlsService->stageSnapshot($slug, $sq3Path, $localcachePath)
-                : $this->playgroundUrlsService->publishSnapshot($slug, $sq3Path, $localcachePath);
+            return $consume($sq3Path, $localcachePath);
         } finally {
             $this->exec('rm -rf ' . escapeshellarg($outDir), null, true);
         }
@@ -140,9 +171,9 @@ final class PlaygroundSnapshotService extends AbstractService {
 
     /**
      * Export the live MySQL database from the running mchef container to SQLite,
-     * run post-processing via generate-install-snapshot.sh, then upload to mchef-urls.
+     * then run post-processing via generate-install-snapshot.sh.
      */
-    private function liveSnapshot(Recipe $recipe, string $slug, bool $stageOnly = false): string {
+    private function liveSnapshot(Recipe $recipe, callable $consume): string {
         $playgroundPath = $this->requirePlaygroundPath();
         $channel        = $this->requireChannel($recipe->moodleTag);
         $gitRef         = preg_match('/^v\d+\.\d+/', $recipe->moodleTag) ? $recipe->moodleTag : '';
@@ -191,9 +222,7 @@ final class PlaygroundSnapshotService extends AbstractService {
                 throw new CliRuntimeException("Post-processing did not produce install.sq3");
             }
 
-            return $stageOnly
-                ? $this->playgroundUrlsService->stageSnapshot($slug, $sq3Path, $localcachePath)
-                : $this->playgroundUrlsService->publishSnapshot($slug, $sq3Path, $localcachePath);
+            return $consume($sq3Path, $localcachePath);
         } finally {
             $this->exec('rm -rf ' . escapeshellarg($patchDir), null, true);
             $this->exec('rm -rf ' . escapeshellarg($outDir), null, true);

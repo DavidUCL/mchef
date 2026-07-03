@@ -37,22 +37,27 @@ class Github extends AbstractService {
     /**
      * Convert a GitHub repo URL to the download URL.
      *
+     * Uses the bare /archive/{ref}.zip form rather than /archive/refs/heads/{ref}.zip:
+     * recipe plugins may pin a tag or commit SHA in their branch field (git clone -b
+     * accepts tags), and the refs/heads form 404s for anything that isn't a branch.
+     * The bare form resolves branches, tags and SHAs alike.
+     *
      * Examples:
-     *   https://github.com/moodle/moodle.git → https://github.com/moodle/moodle/archive/refs/heads/main.zip
-     *   git@github.com:moodle/moodle.git     → https://github.com/moodle/moodle/archive/refs/heads/main.zip
+     *   https://github.com/moodle/moodle.git → https://github.com/moodle/moodle/archive/main.zip
+     *   git@github.com:moodle/moodle.git     → https://github.com/moodle/moodle/archive/main.zip
      *
      * @param string $url Git clone URL in HTTPS or SSH format
-     * @param string $branch Git branch to download
-     * @return string https://github.com/moodle/moodle/archive/refs/heads/main.zip
+     * @param string $ref Git branch, tag or commit SHA to download
+     * @return string https://github.com/moodle/moodle/archive/main.zip
      */
-    public function githubToDownloadZipUrl(string $url, string $branch): string {
+    public function githubToDownloadZipUrl(string $url, string $ref): string {
         [$owner, $repo] = $this->getGithubOwnerRepo($url);
 
         return sprintf(
-            'https://github.com/%s/%s/archive/refs/heads/%s.zip',
+            'https://github.com/%s/%s/archive/%s.zip',
             $owner,
             $repo,
-            $branch
+            $ref
         );
     }
 

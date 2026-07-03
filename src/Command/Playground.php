@@ -17,6 +17,9 @@ final class Playground extends AbstractCommand {
 
     const COMMAND_NAME = 'playground';
 
+    /** restoreDatabase URL emitted when a snapshot is built without --publish. */
+    const SNAPSHOT_URL_PLACEHOLDER = '<snapshot-url-here>';
+
     private PlaygroundUrlsService $playgroundUrlsService;
     private PlaygroundSnapshotService $playgroundSnapshotService;
     private QrCodeService $qrCodeService;
@@ -42,18 +45,25 @@ final class Playground extends AbstractCommand {
 
         $slug     = $this->deriveSlug($recipe);
         $snapshot = $options->getOpt('snapshot');
-        $stage    = $options->getOpt('stage');
+        $publish  = $options->getOpt('publish');
 
         try {
             $snapshotUrl = null;
             if ($snapshot) {
-                if (!$stage) {
-                    $this->cli->warning("--snapshot requires --stage to publish the snapshot. Skipping snapshot build.");
-                } else {
+                if ($publish) {
                     // stageOnly=true: snapshot files are staged but not committed yet.
-                    // stageBlueprint() will commit everything (snapshot + blueprint) in one push.
+                    // publishBlueprint() will commit everything (snapshot + blueprint) in one push.
                     $snapshotUrl = $this->playgroundSnapshotService->buildAndPublish($recipe, $slug, stageOnly: true);
                     $this->cli->success("Snapshot staged: $snapshotUrl");
+                } else {
+                    $localSq3    = $this->playgroundSnapshotService->buildToDirectory($recipe, $slug, getcwd());
+                    $snapshotUrl = self::SNAPSHOT_URL_PLACEHOLDER;
+                    $this->cli->success("Snapshot written to: $localSq3");
+                    $this->cli->warning(
+                        "The blueprint's restoreDatabase step contains the placeholder " .
+                        self::SNAPSHOT_URL_PLACEHOLDER . ". Host the .sq3 file somewhere public " .
+                        "and replace the placeholder before sharing, or re-run with --publish."
+                    );
                 }
             }
 
@@ -74,17 +84,17 @@ final class Playground extends AbstractCommand {
                     throw new \RuntimeException("Failed to write blueprint to: $outputPath");
                 }
                 $this->cli->success("Blueprint written to: $outputPath");
-            } elseif (!$stage) {
+            } elseif (!$publish) {
                 echo $json . PHP_EOL;
             }
 
-            if ($stage) {
-                $this->stageBlueprint($json, $recipe, $slug, (bool)$options->getOpt('qr'));
+            if ($publish) {
+                $this->publishBlueprint($json, $recipe, $slug, !$options->getOpt('noqr'));
             }
         } catch (\Throwable $e) {
-            if ($stage) {
+            if ($publish) {
                 // Best-effort: if a snapshot was staged (git add) but we never reached the
-                // final commit+push in stageBlueprint(), don't leave the local repo clone
+                // final commit+push in publishBlueprint(), don't leave the local repo clone
                 // dirty for the next run. Swallow cleanup failures — surface the original
                 // error, not this one.
                 try {
@@ -131,7 +141,7 @@ final class Playground extends AbstractCommand {
         );
     }
 
-    private function stageBlueprint(string $json, Recipe $recipe, string $slug, bool $qr): void {
+    private function publishBlueprint(string $json, Recipe $recipe, string $slug, bool $qr): void {
         $shortUrl = $this->playgroundUrlsService->publish($json, $slug);
         $this->cli->success("Blueprint published!");
         $this->cli->notice("Share this URL: $shortUrl");
@@ -151,8 +161,8 @@ final class Playground extends AbstractCommand {
         $options->registerCommand(self::COMMAND_NAME, 'Convert a mchef recipe to a Moodle Playground blueprint');
         $options->registerArgument('source', 'Path to a recipe JSON file, or a running instance name', false, self::COMMAND_NAME);
         $options->registerOption('output', 'Write blueprint to a file instead of stdout', 'o', 'PATH', self::COMMAND_NAME);
-        $options->registerOption('stage', 'Publish blueprint to your configured mchef-urls repo', 's', false, self::COMMAND_NAME);
-        $options->registerOption('snapshot', 'Build and upload a database snapshot alongside the blueprint (requires --stage)', null, false, self::COMMAND_NAME);
-        $options->registerOption('qr', 'Render a QR code for the published short URL (requires --stage)', null, false, self::COMMAND_NAME);
+        $options->registerOption('publish', 'Publish blueprint to your configured mchef-urls repo', 'p', false, self::COMMAND_NAME);
+        $options->registerOption('snapshot', 'Build a database snapshot for the blueprint (uploaded with --publish, otherwise written to the current directory)', null, false, self::COMMAND_NAME);
+        $options->registerOption('noqr', 'Suppress the QR code rendered for the published short URL', null, false, self::COMMAND_NAME);
     }
 }

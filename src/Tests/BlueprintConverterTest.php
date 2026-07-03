@@ -109,7 +109,7 @@ final class BlueprintConverterTest extends \App\Tests\MchefTestCase
         $pluginStep = $this->findStep($blueprint, 'installMoodlePlugin');
         $this->assertNotNull($pluginStep);
         $this->assertEquals(
-            'https://github.com/moodlehq/moodle-block_participants/archive/refs/heads/master.zip',
+            'https://github.com/moodlehq/moodle-block_participants/archive/master.zip',
             $pluginStep['url']
         );
     }
@@ -121,7 +121,7 @@ final class BlueprintConverterTest extends \App\Tests\MchefTestCase
         $pluginStep = $this->findStep($blueprint, 'installMoodlePlugin');
         $this->assertNotNull($pluginStep);
         $this->assertEquals(
-            'https://github.com/moodlehq/moodle-block_participants/archive/refs/heads/main.zip',
+            'https://github.com/moodlehq/moodle-block_participants/archive/main.zip',
             $pluginStep['url']
         );
     }
@@ -131,7 +131,7 @@ final class BlueprintConverterTest extends \App\Tests\MchefTestCase
         $blueprint = $this->converter->convert($recipe);
         $pluginStep = $this->findStep($blueprint, 'installMoodlePlugin');
         $this->assertNotNull($pluginStep);
-        $this->assertStringContainsString('/archive/refs/heads/main.zip', $pluginStep['url']);
+        $this->assertStringContainsString('/archive/main.zip', $pluginStep['url']);
     }
 
     public function testStringPluginWithTildeBranchSyntax(): void {
@@ -139,7 +139,7 @@ final class BlueprintConverterTest extends \App\Tests\MchefTestCase
         $blueprint = $this->converter->convert($recipe);
         $pluginStep = $this->findStep($blueprint, 'installMoodlePlugin');
         $this->assertNotNull($pluginStep);
-        $this->assertStringContainsString('/archive/refs/heads/dev.zip', $pluginStep['url']);
+        $this->assertStringContainsString('/archive/dev.zip', $pluginStep['url']);
     }
 
     public function testNonGithubPluginSkipped(): void {
